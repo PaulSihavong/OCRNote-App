@@ -1,10 +1,12 @@
 import os
+import uvicorn
 import uuid
 import io
 from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from google.cloud import vision
 from google.cloud import storage
@@ -24,6 +26,18 @@ if not all([GCS_BUCKET_NAME, INSTANCE_CONNECTION_NAME, DB_NAME, DB_USER, DB_PASS
     raise RuntimeError("Missing one or more required env vars for DB/GCS/DB creds.")
 
 app = FastAPI()
+
+origins = [
+	"https://notes-ocr-frontend-1037491170130.us-central1.run.app"
+	]
+
+app.add_middleware(
+	CORSMiddleware,
+	allow_origins=origins,
+	allow_credentials=True,
+	allow_methods=["*"],
+	allow_headers=["*"],
+)
 
 vision_client = vision.ImageAnnotatorClient()
 storage_client = storage.Client()
@@ -51,7 +65,7 @@ def insert_document(job_id: str,
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(,(job_id, user_id, class_name, topic, text_body, embedding),)
+            cur.execute((job_id, user_id, class_name, topic, text_body, embedding),)
         conn.commit()
     finally:
         conn.close()
@@ -63,7 +77,18 @@ def search_documents(query: str, limit: int = 10):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(,(pattern, pattern, pattern, limit),)
+            cur.execute(
+                """
+                SELECT job_id, class_name, topic, text_body, created_at
+                FROM documents
+                WHERE text_body ILIKE %s
+                   OR topic ILIKE %s
+                   OR class_name ILIKE %s
+                ORDER BY created_at DESC
+                LIMIT %s;
+                """,
+                (pattern, pattern, pattern, limit),
+            )
             rows = cur.fetchall()
     finally:
         conn.close()
@@ -89,7 +114,17 @@ def semantic_search_documents(query_embedding: List[float], limit: int = 10):
     try:
         with conn.cursor() as cur:
             # Using <-> (Euclidean distance) by default; you can configure cosine if desired.
-            cur.execute(,(query_embedding, query_embedding, limit),)
+            cur.execute(
+                """
+                SELECT job_id, class_name, topic, text_body, created_at,
+                       embedding <-> %s::vector AS distance
+                FROM documents
+                WHERE embedding IS NOT NULL
+                ORDER BY embedding <-> %s::vector
+                LIMIT %s;
+                """,
+                (query_embedding, query_embedding, limit),
+            )
             rows = cur.fetchall()
     finally:
         conn.close()

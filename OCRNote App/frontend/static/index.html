@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Notes OCR App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 1.5rem;
+      background: #10151a;
+      color: #f5f5f5;
+    }
+    h1, h2 {
+      margin-top: 0;
+    }
+    .card {
+      background: #151b23;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+    input[type="file"],
+    input[type="text"] {
+      width: 100%;
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      border: 1px solid #2b3440;
+      background: #0f141a;
+      color: #f5f5f5;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 0.5rem 0.9rem;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      background: #2563eb;
+      color: #f9fafb;
+      margin-top: 0.5rem;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    textarea {
+      width: 100%;
+      min-height: 200px;
+      resize: vertical;
+      padding: 0.6rem;
+      border-radius: 4px;
+      border: 1px solid #2b3440;
+      background: #0f141a;
+      color: #f5f5f5;
+      box-sizing: border-box;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.9rem;
+    }
+    .small {
+      font-size: 0.85rem;
+      color: #9ca3af;
+    }
+    .status {
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+    .status.error {
+      color: #fecaca;
+    }
+    .status.ok {
+      color: #bbf7d0;
+    }
+    .tag {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      background: #111827;
+      font-size: 0.75rem;
+      color: #e5e7eb;
+      margin-right: 0.25rem;
+    }
+    .results-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .results-list li {
+      border-bottom: 1px solid #1f2933;
+      padding: 0.5rem 0;
+    }
+    .results-list li:last-child {
+      border-bottom: none;
+    }
+    a {
+      color: #60a5fa;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .snippet {
+      font-size: 0.85rem;
+      color: #d1d5db;
+      margin-top: 0.25rem;
+    }
+    .section-title {
+      margin-top: 0.75rem;
+      margin-bottom: 0.25rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <h1>Notes OCR App</h1>
+  <p class="small">
+    Upload homework or notes, extract text, store in the database, search them later, and download the text.
+  </p>
+
+  <!-- Upload card -->
+  <div class="card">
+    <h2>Upload document</h2>
+    <form id="uploadForm">
+      <label for="fileInput">Select an image or PDF</label>
+      <input type="file" id="fileInput" name="file" required />
+      <button type="submit" id="uploadBtn">Upload &amp; Process</button>
+      <div id="uploadStatus" class="status"></div>
+    </form>
+
+    <div id="uploadResult" style="margin-top: 1rem; display: none;">
+      <div class="small">
+        <span class="tag">job_id</span>
+        <span id="jobIdText"></span>
+      </div>
+      <button id="downloadBtn" style="margin-top: 0.5rem;">Download .txt</button>
+      <label for="ocrText" style="margin-top: 0.75rem;">Extracted text</label>
+      <textarea id="ocrText" readonly></textarea>
+    </div>
+  </div>
+
+  <!-- Search card -->
+  <div class="card">
+    <h2>Search documents</h2>
+
+    <!-- Keyword search -->
+    <div class="section-title">Keyword search</div>
+    <form id="searchForm">
+      <label for="searchInput">Keyword</label>
+      <input type="text" id="searchInput" required placeholder="e.g. page replacement, eigenvalues, CS 433" />
+      <button type="submit" id="searchBtn">Search</button>
+      <div id="searchStatus" class="status"></div>
+    </form>
+    <ul id="searchResults" class="results-list"></ul>
+
+    <!-- Semantic search -->
+    <div class="section-title">Semantic search</div>
+    <form id="semanticSearchForm">
+      <label for="semanticSearchInput">Describe what you're looking for</label>
+      <input
+        type="text"
+        id="semanticSearchInput"
+        required
+        placeholder="e.g. notes about FIFO vs LRU, probability of events, etc."
+      />
+      <button type="submit" id="semanticSearchBtn">Semantic search</button>
+      <div id="semanticSearchStatus" class="status"></div>
+    </form>
+    <ul id="semanticSearchResults" class="results-list"></ul>
+  </div>
+
+  <script>
+    const API_BASE = "https://notes-ocr-backend-1037491170130.us-central1.run.app";
+
+    const uploadForm = document.getElementById("uploadForm");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const uploadStatus = document.getElementById("uploadStatus");
+    const uploadResult = document.getElementById("uploadResult");
+    const jobIdText = document.getElementById("jobIdText");
+    const ocrText = document.getElementById("ocrText");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const fileInput = document.getElementById("fileInput");
+
+    let lastJobId = null;
+
+    uploadForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      uploadStatus.textContent = "Uploading and processing...";
+      uploadStatus.className = "status";
+      uploadBtn.disabled = true;
+      uploadResult.style.display = "none";
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const resp = await fetch(API_BASE + "/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          const msg = err.detail || resp.statusText || "Upload failed";
+          throw new Error(msg);
+        }
+
+        const data = await resp.json();
+        lastJobId = data.job_id;
+        jobIdText.textContent = data.job_id;
+        ocrText.value = data.text || "";
+        uploadResult.style.display = "block";
+
+        uploadStatus.textContent = "Upload and OCR completed.";
+        uploadStatus.className = "status ok";
+      } catch (err) {
+        console.error(err);
+        uploadStatus.textContent = "Error: " + err.message;
+        uploadStatus.className = "status error";
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      if (!lastJobId) return;
+      const url = API_BASE + "/download/" + encodeURIComponent(lastJobId);
+      window.open(url, "_blank");
+    });
+
+    // --------------- Keyword search logic ---------------
+    const searchForm = document.getElementById("searchForm");
+    const searchInput = document.getElementById("searchInput");
+    const searchStatus = document.getElementById("searchStatus");
+    const searchResults = document.getElementById("searchResults");
+    const searchBtn = document.getElementById("searchBtn");
+
+    searchForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const q = searchInput.value.trim();
+      if (!q) return;
+
+      searchStatus.textContent = "Searching...";
+      searchStatus.className = "status";
+      searchResults.innerHTML = "";
+      searchBtn.disabled = true;
+
+      try {
+        const resp = await fetch(
+          API_BASE + "/search?" + new URLSearchParams({ q })
+        );
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          const msg = err.detail || resp.statusText || "Search failed";
+          throw new Error(msg);
+        }
+
+        const data = await resp.json();
+        const results = data.results || [];
+
+        if (results.length === 0) {
+          searchStatus.textContent = "No matches found.";
+          searchStatus.className = "status";
+          return;
+        }
+
+        searchStatus.textContent = `Found ${results.length} result(s).`;
+        searchStatus.className = "status ok";
+
+        searchResults.innerHTML = "";
+        results.forEach((doc) => {
+          const li = document.createElement("li");
+
+          const header = document.createElement("div");
+          header.innerHTML = `
+            <span class="tag">${doc.class_name || "No class"}</span>
+            <span class="small">${doc.topic || "No topic"}</span>
+          `;
+
+          const snippet = document.createElement("div");
+          snippet.className = "snippet";
+          snippet.textContent = doc.snippet || "";
+
+          const linkRow = document.createElement("div");
+          linkRow.className = "small";
+          const downloadLink = document.createElement("a");
+          downloadLink.href =
+            API_BASE + "/download/" + encodeURIComponent(doc.job_id);
+          downloadLink.target = "_blank";
+          downloadLink.textContent = "Download text";
+          linkRow.appendChild(downloadLink);
+
+          li.appendChild(header);
+          li.appendChild(snippet);
+          li.appendChild(linkRow);
+
+          searchResults.appendChild(li);
+        });
+      } catch (err) {
+        console.error(err);
+        searchStatus.textContent = "Error: " + err.message;
+        searchStatus.className = "status error";
+      } finally {
+        searchBtn.disabled = false;
+      }
+    });
+
+    // --------------- Semantic search logic ---------------
+    const semanticSearchForm = document.getElementById("semanticSearchForm");
+    const semanticSearchInput = document.getElementById("semanticSearchInput");
+    const semanticSearchStatus = document.getElementById("semanticSearchStatus");
+    const semanticSearchResults = document.getElementById("semanticSearchResults");
+    const semanticSearchBtn = document.getElementById("semanticSearchBtn");
+
+    semanticSearchForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const q = semanticSearchInput.value.trim();
+      if (!q) return;
+
+      semanticSearchStatus.textContent = "Running semantic search...";
+      semanticSearchStatus.className = "status";
+      semanticSearchResults.innerHTML = "";
+      semanticSearchBtn.disabled = true;
+
+      try {
+        const resp = await fetch(
+          API_BASE + "/semantic_search?" + new URLSearchParams({ q })
+        );
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          const msg = err.detail || resp.statusText || "Semantic search failed";
+          throw new Error(msg);
+        }
+
+        const data = await resp.json();
+        const results = data.results || [];
+
+        if (results.length === 0) {
+          semanticSearchStatus.textContent = "No semantic matches found.";
+          semanticSearchStatus.className = "status";
+          return;
+        }
+
+        semanticSearchStatus.textContent = `Found ${results.length} result(s).`;
+        semanticSearchStatus.className = "status ok";
+
+        semanticSearchResults.innerHTML = "";
+        results.forEach((doc) => {
+          const li = document.createElement("li");
+
+          const header = document.createElement("div");
+          header.innerHTML = `
+            <span class="tag">${doc.class_name || "No class"}</span>
+            <span class="small">${doc.topic || "No topic"}</span>
+          `;
+
+          const snippet = document.createElement("div");
+          snippet.className = "snippet";
+          let distInfo = doc.distance !== undefined
+            ? ` (distance: ${doc.distance.toFixed(3)})`
+            : "";
+          snippet.textContent = (doc.snippet || "") + distInfo;
+
+          const linkRow = document.createElement("div");
+          linkRow.className = "small";
+          const downloadLink = document.createElement("a");
+          downloadLink.href =
+            API_BASE + "/download/" + encodeURIComponent(doc.job_id);
+          downloadLink.target = "_blank";
+          downloadLink.textContent = "Download text";
+          linkRow.appendChild(downloadLink);
+
+          li.appendChild(header);
+          li.appendChild(snippet);
+          li.appendChild(linkRow);
+
+          semanticSearchResults.appendChild(li);
+        });
+      } catch (err) {
+        console.error(err);
+        semanticSearchStatus.textContent = "Error: " + err.message;
+        semanticSearchStatus.className = "status error";
+      } finally {
+        semanticSearchBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
