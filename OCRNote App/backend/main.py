@@ -112,8 +112,7 @@ def search_documents(query: str, limit: int = 10):
 def semantic_search_documents(query_embedding: List[float], limit: int = 10):
     conn = get_conn()
     try:
-        with conn.cursor() as cur:
-            # Using <-> (Euclidean distance) by default; you can configure cosine if desired.
+        with conn.cursor() as cur:            
             cur.execute(
                 """
                 SELECT job_id, class_name, topic, text_body, created_at,
@@ -183,8 +182,8 @@ def guess_class_name(text: str) -> Optional[str]:
     import re
 
     patterns = [
-        r"\b([A-Z]{2,4}\s?\d{3})\b",      # e.g., CS433, CS 433, MATH160
-        r"\b([A-Z]{2,4}\s?\d{3}[A-Z]?)\b" # e.g., CS 433A
+        r"\b([A-Z]{2,4}\s?\d{3})\b",      
+        r"\b([A-Z]{2,4}\s?\d{3}[A-Z]?)\b" 
     ]
     for pat in patterns:
         m = re.search(pat, text)
@@ -258,7 +257,7 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         insert_document(
             job_id=job_id,
-            user_id=None,  # you can wire this to auth later
+            user_id=None,
             class_name=class_name,
             topic=topic,
             text_body=clean_text,
@@ -325,3 +324,4 @@ def semantic_search(q: str = Query(..., min_length=1), limit: int = Query(10, ge
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
+
