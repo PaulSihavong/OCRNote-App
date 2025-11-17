@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+google-cloud-vision
+google-cloud-storage
+google-cloud-sql-connector
+python-multipart
+psycopg2-binary
+sentence-transformers
