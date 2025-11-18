@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import vision
 from google.cloud import storage
 from google.cloud.sql.connector import Connector
-import psycopg2
+import pg8000
 
 from sentence_transformers import SentenceTransformer
 from functools import lru_cache
@@ -48,7 +48,7 @@ connector = Connector()
 def get_conn():
     conn = connector.connect(
         INSTANCE_CONNECTION_NAME,
-        "psycopg2",
+        "pg8000",
         user=DB_USER,
         password=DB_PASS,
         db=DB_NAME,
@@ -56,41 +56,54 @@ def get_conn():
     return conn
 
 
-def insert_document(job_id: str,
-                    user_id: Optional[str],
-                    class_name: Optional[str],
-                    topic: Optional[str],
-                    text_body: str,
-                    embedding: Optional[List[float]]) -> None:
+def insert_document(job_id,
+                    user_id,
+                    class_name,
+                    topic,
+                    text_body,
+                    embedding):
     conn = get_conn()
+    cur = conn.cursor()
     try:
-        with conn.cursor() as cur:
-            cur.execute((job_id, user_id, class_name, topic, text_body, embedding),)
+        cur.execute(
+            """
+            INSERT INTO documents (job_id, user_id, class_name, topic, text_body, embedding)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (job_id) DO UPDATE SET
+              user_id   = EXCLUDED.user_id,
+              class_name= EXCLUDED.class_name,
+              topic     = EXCLUDED.topic,
+              text_body = EXCLUDED.text_body,
+              embedding = EXCLUDED.embedding;
+            """,
+            (job_id, user_id, class_name, topic, text_body, embedding),
+        )
         conn.commit()
     finally:
+        conn.close()
         conn.close()
 
 
 def search_documents(query: str, limit: int = 10):
     pattern = f"%{query}%"
-
     conn = get_conn()
+    cur = conn.cursor()
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT job_id, class_name, topic, text_body, created_at
-                FROM documents
-                WHERE text_body ILIKE %s
-                   OR topic ILIKE %s
-                   OR class_name ILIKE %s
-                ORDER BY created_at DESC
-                LIMIT %s;
-                """,
-                (pattern, pattern, pattern, limit),
-            )
-            rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT job_id, class_name, topic, text_body, created_at
+            FROM documents
+            WHERE text_body ILIKE %s
+               OR topic ILIKE %s
+               OR class_name ILIKE %s
+            ORDER BY created_at DESC
+            LIMIT %s;
+            """,
+            (pattern, pattern, pattern, limit),
+        )
+        rows = cur.fetchall()
     finally:
+        cur.close()
         conn.close()
 
     results = []
@@ -109,23 +122,24 @@ def search_documents(query: str, limit: int = 10):
     return results
 
 
-def semantic_search_documents(query_embedding: List[float], limit: int = 10):
+def semantic_search_documents(query_embedding, limit: int = 10):
     conn = get_conn()
+    cur = conn.cursor()
     try:
-        with conn.cursor() as cur:            
-            cur.execute(
-                """
-                SELECT job_id, class_name, topic, text_body, created_at,
-                       embedding <-> %s::vector AS distance
-                FROM documents
-                WHERE embedding IS NOT NULL
-                ORDER BY embedding <-> %s::vector
-                LIMIT %s;
-                """,
-                (query_embedding, query_embedding, limit),
-            )
-            rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT job_id, class_name, topic, text_body, created_at,
+                   embedding <-> %s::vector AS distance
+            FROM documents
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <-> %s::vector
+            LIMIT %s;
+            """,
+            (query_embedding, query_embedding, limit),
+        )
+        rows = cur.fetchall()
     finally:
+        cur.close()
         conn.close()
 
     results = []
@@ -182,8 +196,8 @@ def guess_class_name(text: str) -> Optional[str]:
     import re
 
     patterns = [
-        r"\b([A-Z]{2,4}\s?\d{3})\b",      
-        r"\b([A-Z]{2,4}\s?\d{3}[A-Z]?)\b" 
+        r"\b([A-Z]{2,4}\s?\d{3})\b",      # e.g., CS433, CS 433, MATH160
+        r"\b([A-Z]{2,4}\s?\d{3}[A-Z]?)\b" # e.g., CS 433A
     ]
     for pat in patterns:
         m = re.search(pat, text)
@@ -257,7 +271,7 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         insert_document(
             job_id=job_id,
-            user_id=None,
+            user_id=None,  # you can wire this to auth later
             class_name=class_name,
             topic=topic,
             text_body=clean_text,
@@ -324,4 +338,3 @@ def semantic_search(q: str = Query(..., min_length=1), limit: int = Query(10, ge
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
-
