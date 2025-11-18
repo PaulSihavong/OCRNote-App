@@ -271,7 +271,7 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         insert_document(
             job_id=job_id,
-            user_id=None,  # you can wire this to auth later
+            user_id=None,
             class_name=class_name,
             topic=topic,
             text_body=clean_text,
@@ -338,3 +338,4 @@ def semantic_search(q: str = Query(..., min_length=1), limit: int = Query(10, ge
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
+
