@@ -2,7 +2,6 @@ fastapi
 uvicorn[standard]
 google-cloud-vision
 google-cloud-storage
-cloud-sql-python-connector
+cloud-sql-python-connector[pg8000]
 python-multipart
-psycopg2-binary
 sentence-transformers
